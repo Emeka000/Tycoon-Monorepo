@@ -11,6 +11,29 @@ import {
   PaginatedResponse,
 } from '../../common';
 
+const ADMIN_LOG_EXPORT_LIMIT = 10_000;
+const SENSITIVE_DETAIL_KEY =
+  /(password|secret|token|authorization|cookie|api.?key|private.?key|email|phone|address|wallet)/i;
+
+export function redactAuditDetails(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(redactAuditDetails);
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nestedValue]) => [
+        key,
+        SENSITIVE_DETAIL_KEY.test(key)
+          ? '[REDACTED]'
+          : redactAuditDetails(nestedValue),
+      ]),
+    );
+  }
+
+  return value;
+}
+
 @Injectable()
 export class AdminLogsService {
   constructor(
@@ -58,12 +81,8 @@ export class AdminLogsService {
         'log.action',
         'log.targetId',
         'log.details',
-        'log.ipAddress',
-        'log.userAgent',
         'log.createdAt',
         'admin.id',
-        'admin.email',
-        'admin.username',
       ]);
 
     // Apply filters
@@ -90,11 +109,18 @@ export class AdminLogsService {
 
     const searchableFields = ['action', 'ipAddress'];
 
-    return await this.paginationService.paginate(
+    const result = await this.paginationService.paginate(
       queryBuilder,
       queryDto,
       searchableFields,
     );
+    return {
+      ...result,
+      data: result.data.map((log) => ({
+        ...log,
+        details: redactAuditDetails(log.details) as Record<string, any>,
+      })),
+    };
   }
 
   /**
@@ -107,21 +133,15 @@ export class AdminLogsService {
     const { adminId, action, startDate, endDate } = queryDto;
     const queryBuilder = this.adminLogRepository
       .createQueryBuilder('log')
-      .leftJoinAndSelect('log.admin', 'admin')
       .select([
         'log.id',
         'log.adminId',
         'log.action',
         'log.targetId',
-        'log.details',
-        'log.ipAddress',
-        'log.userAgent',
         'log.createdAt',
-        'admin.id',
-        'admin.email',
-        'admin.username',
       ])
-      .orderBy('log.createdAt', 'DESC');
+      .orderBy('log.createdAt', 'DESC')
+      .limit(ADMIN_LOG_EXPORT_LIMIT);
 
     // Apply filters
     if (adminId) {
@@ -152,13 +172,10 @@ export class AdminLogsService {
       // TypeORM stream returns raw data with aliases
       csvStream.write({
         ID: row.log_id,
-        Admin: row.admin_email || row.log_adminId,
+        AdminID: row.log_adminId,
         Action: row.log_action,
         TargetID: row.log_targetId,
-        IPAddress: row.log_ipAddress,
-        UserAgent: row.log_userAgent,
         CreatedAt: row.log_createdAt,
-        Details: JSON.stringify(row.log_details),
       });
     }
 

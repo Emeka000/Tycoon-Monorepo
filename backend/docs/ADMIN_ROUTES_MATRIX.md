@@ -64,7 +64,26 @@ silently succeeding.
 6. **Rate limiting** — moderation entrypoints are rate-limited per admin
    principal to bound abuse and accidental loops.
 
+Admin log exports are audited as `ADMIN_LOGS_EXPORTED`, limited to 10,000 rows,
+and contain only the allowlisted ID, admin ID, action, target ID, and timestamp
+columns. IP addresses, user agents, email addresses, and free-form details are
+not exported. The paginated view recursively redacts sensitive detail keys.
+
+---
+
 ## Kill switch
+
+Chat moderation mutations are gated behind the `CHAT_MODERATION_ENABLED`
+feature flag. When disabled, the routes return `503 DEPENDENCY_UNAVAILABLE`
+and the in-game chat falls back to read-only. This provides a rollback path
+without a redeploy.
+
+## Related documents
+
+| HTTP Method | Path | Purpose | Guard Used |
+|-------------|------|---------|------------|
+| GET | `/users` | List all users with pagination | AdminGuard |
+| PATCH | `/users/:id` | Update a user by ID | AdminGuard |
 
 Chat moderation mutations are gated behind the `CHAT_MODERATION_ENABLED`
 feature flag. When disabled, the routes return `503 DEPENDENCY_UNAVAILABLE`
